@@ -116,7 +116,7 @@ pub fn get_everest_version(game_path: &str) -> Option<i32> {
         Some(str)
     }
 
-    let game_path = resolve_everest_install_path(Path::new(game_path));
+    let game_path = Path::new(game_path);
 
     check_file(game_path.join("Celeste.exe"))
         .or_else(|| {
@@ -185,11 +185,11 @@ fn run_command(
         lines
     });
 
-    let mut line_count = 50f32;
+    let mut line_count = 0f32;
     for line in reader.lines() {
         let line = line?;
-        line_count += 0.5;
-        progress_callback(line, line_count);
+        line_count = (line_count + 1.0).min(99.0);
+        progress_callback(format!("[3/3] Run MiniInstaller: {line}"), line_count);
     }
 
     let status = child.wait()?;
@@ -202,27 +202,9 @@ fn run_command(
         bail!("Command failed with error: {}", stderr);
     }
 
+    progress_callback("[3/3] Run MiniInstaller".to_string(), 100.0);
+
     Ok(())
-}
-
-fn resolve_everest_install_path(game_path: &Path) -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        let bundled_resources = game_path
-            .join("Celeste.app")
-            .join("Contents")
-            .join("Resources");
-        if bundled_resources.exists() {
-            return bundled_resources;
-        }
-
-        let resources = game_path.join("Contents").join("Resources");
-        if resources.exists() {
-            return resources;
-        }
-    }
-
-    game_path.to_path_buf()
 }
 
 #[cfg(target_os = "windows")]
@@ -253,20 +235,20 @@ pub fn download_and_install_everest(
 
     let temp_path = std::env::temp_dir().join("everest.zip");
     let temp_path = temp_path.to_str().unwrap();
-    let game_path = resolve_everest_install_path(std::path::Path::new(game_path));
+    let game_path = std::path::Path::new(game_path);
     let cancel_flag = Arc::new(AtomicBool::new(false));
 
     ureq::download_file_with_progress(
         url,
         temp_path,
         &mut |callback| {
-            progress_callback("Downloading Everest".to_string(), callback.progress);
+            progress_callback("[1/3] Download Everest".to_string(), callback.progress);
         },
         false,
         &cancel_flag,
     )?;
 
-    progress_callback("Installing Everest".to_string(), 50.0);
+    progress_callback("[2/3] Extract Everest files".to_string(), 0.0);
 
     // unzip everest/main/* to game_path and overwrite all
     let mut archive = zip::ZipArchive::new(std::fs::File::open(temp_path)?)?;
@@ -280,8 +262,8 @@ pub fn download_and_install_everest(
         // strip /main/ from the name
         let dist_name = dist_name.strip_prefix("main/")?;
         let outpath = game_path.join(dist_name);
-        let status_str = format!("Extracting {}", outpath.display());
-        progress_callback(status_str, 50.0 + (i as f32) / (archive_len as f32) * 40.0);
+        let status_str = format!("[2/3] Extract Everest files: {}", outpath.display());
+        progress_callback(status_str, (i as f32) / (archive_len as f32) * 100.0);
         if file.name().ends_with('/') {
             std::fs::create_dir_all(&outpath)?;
         } else {
@@ -305,7 +287,7 @@ pub fn download_and_install_everest(
         }
     }
 
-    progress_callback("Running Everest installer".to_string(), 90.0);
+    progress_callback("[3/3] Run MiniInstaller".to_string(), 0.0);
     let installer_path = game_path.join(installer_name()?);
 
     run_command(installer_path, progress_callback)
